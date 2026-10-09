@@ -1532,10 +1532,13 @@ function opModal(pre){pre=pre&&pre.scanned?pre:null;
 }
 
 /* ============ AI: распознавание чеков по фото (Gemini) ============ */
-const GEMINI_API_KEY='AQ.Ab8RN6LjbMTlvkO9kGmZfixjtStUHmz3P6dCZo3faiq0kkgHsA';
+const GEMINI_API_KEY='AQ.Ab8RN6Kg8dru1hgBQsazrN2A49B08SNpnUioOVKN-I_PWBXmbQ';
+// если ключ в коде сменили — старый ключ, введённый вручную в браузере, сбрасывается
+try{if(localStorage.getItem('mono.aiKeyBase')!==GEMINI_API_KEY){localStorage.removeItem('mono.aiKey');localStorage.setItem('mono.aiKeyBase',GEMINI_API_KEY);}}catch(e){}
+function getKey(){return (localStorage.getItem('mono.aiKey')||GEMINI_API_KEY).trim();}
 const GEMINI_MODELS=['gemini-flash-lite-latest','gemini-3.8-flash']; // Lite: ~500 запросов/день, Flash — запасной (~20/день)
 const GEMINI_ROUTES=[
-  m=>({url:`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,headers:{'x-goog-api-key':GEMINI_API_KEY}})
+  m=>({url:`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,headers:{'x-goog-api-key':getKey()}})
 ];
 let scanId=0;
 
@@ -1608,7 +1611,7 @@ async function callGemini(b64s,onStage){
   const parts=[{text:buildPrompt()}].concat(b64s.map(d=>({inlineData:{mimeType:'image/jpeg',data:d}})));
   const body=JSON.stringify({contents:[{role:'user',parts}],generationConfig:{temperature:0,responseMimeType:'application/json'}});
   const log=[],DELAYS=[0,4000,9000],sleep=ms=>new Promise(r=>setTimeout(r,ms));
-  let models=GEMINI_MODELS.map((_,i)=>i),quota=null,overload=false;
+  let models=GEMINI_MODELS.map((_,i)=>i),quota=null,overload=false,auth=false;
   for(let round=0;round<DELAYS.length&&models.length;round++){
     if(round>0){
       for(let t=Math.round(DELAYS[round]/1000);t>0;t--){
@@ -1634,15 +1637,17 @@ async function callGemini(b64s,onStage){
       }
       let msg='';try{const e=await res.json();msg=(e.error&&e.error.message)||'';}catch(_){}
       log.push(`${model}: ${res.status} ${msg}`.trim().slice(0,200));
+      if(res.status===401||res.status===403||/API key not valid|API_KEY_INVALID|expired/i.test(msg)){auth=true;continue;}
       if(res.status===429){quota=/minute/i.test(msg)&&!/day/i.test(msg)?'minute':'day';continue;} // у каждой модели свой лимит — пробуем следующую
       if(res.status>=500){overload=true;retry.push(mi);}
     }
     models=retry;
   }
   const err=new Error(
+    auth&&!overload&&!quota?'Google не принимает ключ API — он отозван, удалён или ограничен. Вставьте новый ключ':
     quota&&!overload?(quota==='minute'?'Слишком много запросов подряд — подождите минуту и повторите':'Дневной бесплатный лимит нейросети исчерпан — он сбрасывается раз в сутки. Пока добавляйте операции вручную')
     :overload?'Сервер нейросети перегружен — попробуйте ещё раз через минуту':'Нейросеть не ответила');
-  err.log=log.slice(-4);throw err;
+  err.log=log.slice(-4);err.auth=auth&&!overload&&!quota;throw err;
 }
 
 function parseAiJson(txt){
@@ -1761,9 +1766,15 @@ async function scanReceipt(files){
     if(my!==scanId)return;
     openSheet(`<h3>Не получилось распознать</h3>
       <div class="scan-err">${esc(e.message||String(e))}${e.log?'<br><br>'+e.log.map(esc).join('<br>'):''}</div>
-      <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Закрыть</button><button class="btn" id="mManual">Вручную</button></div>`);
+      ${e.auth?`<div class="field"><span class="lbl">Новый API-ключ Gemini</span><input id="keyIn" type="text" placeholder="Вставьте ключ (AIza… или AQ.…)" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+      <div class="hint">Создать ключ: aistudio.google.com → «Get API key». Он сохранится только в этом браузере.</div>`:''}
+      <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Закрыть</button>${e.auth?'<button class="btn" id="mKey">Сохранить и повторить</button>':'<button class="btn" id="mManual">Вручную</button>'}</div>`);
     $('mCancel').onclick=closeSheet;
-    $('mManual').onclick=()=>{closeSheet();setTimeout(()=>opModal(),160);};
+    if($('mManual'))$('mManual').onclick=()=>{closeSheet();setTimeout(()=>opModal(),160);};
+    if($('mKey'))$('mKey').onclick=()=>{
+      const k=$('keyIn').value.trim();
+      if(k.length<20||/\s/.test(k)){toast('Похоже на неполный ключ');return;}
+      localStorage.setItem('mono.aiKey',k);scanReceipt(files);};
   }
 }
 
