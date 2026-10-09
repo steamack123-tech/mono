@@ -783,6 +783,48 @@ body.light .sheet select option{background:#fff;color:#161618}
 @media (prefers-reduced-motion:reduce){
   .page .rv{animation:none!important;opacity:1!important;transform:none!important}
 }
+
+/* ===== AI scan + income/expense markers ===== */
+:root{--inc:#34c77b;--exp:#ff6b6b}
+body.light{--inc:#12834a;--exp:#d23a3a}
+.row-amt.inc{color:var(--inc)}
+.row-amt.exp{color:var(--exp)}
+.row-ic{position:relative}
+.row-kind{position:absolute;right:-4px;bottom:-4px;width:15px;height:15px;border-radius:50%;font-style:normal;font-size:9px;font-weight:800;line-height:15px;text-align:center;color:#fff;border:2px solid var(--card)}
+.row-kind.inc{background:var(--inc)}
+.row-kind.exp{background:var(--exp)}
+.kind-tag{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:99px;margin-right:6px;vertical-align:1px}
+.kind-tag.inc{color:var(--inc);background:color-mix(in srgb,var(--inc) 14%,transparent)}
+.kind-tag.exp{color:var(--exp);background:color-mix(in srgb,var(--exp) 14%,transparent)}
+.tile .up,#hInc{color:var(--inc) !important}
+#hExp{color:var(--exp)}
+.qa-list{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.qa{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:14px;border-radius:16px;border:1px solid var(--line2);background:var(--card2);color:var(--tx);font-family:var(--body);cursor:pointer;transition:transform .2s,background .25s}
+.qa:active{transform:scale(.98)}
+.qa-ic{width:42px;height:42px;flex:none;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:18px;background:var(--tx);color:var(--bg)}
+.qa b{display:block;font-size:14px;font-weight:800}
+.qa small{display:block;font-size:11.5px;color:var(--tx3);margin-top:3px;font-weight:500}
+.scan-banner{margin-top:10px;padding:9px 12px;border-radius:12px;font-size:12px;font-weight:700;color:var(--tx);background:var(--card2);border:1px dashed var(--line2)}
+.scan-loader{height:5px;border-radius:99px;background:var(--line);overflow:hidden;margin:22px 0 14px;position:relative}
+.scan-loader i{position:absolute;top:0;bottom:0;width:40%;border-radius:99px;background:var(--tx);animation:scanrun 1.1s cubic-bezier(.45,0,.55,1) infinite}
+@keyframes scanrun{0%{left:-40%}100%{left:100%}}
+.scan-hint{font-size:12.5px;color:var(--tx2);margin-top:2px}
+.scan-prev{display:block;max-width:100%;max-height:150px;margin:14px auto 0;border-radius:12px;border:1px solid var(--line2);object-fit:contain}
+.scan-err{margin-top:10px;font-size:12px;color:var(--tx2);word-break:break-word}
+
+.mi-list{margin-top:4px}
+.mi{border:1px solid var(--line2);background:var(--card2);border-radius:14px;padding:10px;margin-top:10px}
+.mi-top,.mi-bot{display:flex;gap:8px;align-items:center}
+.mi-bot{margin-top:8px}
+.mi input,.mi select{min-width:0;padding:9px 10px !important;font-size:13px !important}
+.mi-ck{width:20px !important;height:20px;flex:none;accent-color:var(--tx);padding:0 !important}
+.mi-note{flex:1}
+.mi-amt{width:92px !important;flex:none;text-align:right;font-family:var(--mono)}
+.mi-bot select{flex:1}
+.mi-bot .mi-date{flex:1.2}
+.mi-dup{margin-top:8px;font-size:11px;color:var(--exp);font-weight:700}
+.mi-list~.btn-row{position:sticky;bottom:0;margin-top:0 !important;padding:12px 0 2px;background:#17171b}
+body.light .mi-list~.btn-row{background:#fff}
 </style>
 </head>
 <body>
@@ -1225,8 +1267,8 @@ function fmtDay(s){const d=pdate(s),now=new Date();const t=dkey(new Date(now.get
 function txRow(t,withDel){
   const inc=t.type==='inc';
   return `<div class="row">
-    <div class="row-ic">${catIcon(t.category)}</div>
-    <div class="row-main"><b>${esc(t.category)}</b><span>${esc(t.note||'—')}</span></div>
+    <div class="row-ic">${catIcon(t.category)}<i class="row-kind ${inc?'inc':'exp'}">${inc?'↓':'↑'}</i></div>
+    <div class="row-main"><b>${esc(t.category)}</b><span><em class="kind-tag ${inc?'inc':'exp'}">${inc?'Приход':'Расход'}</em>${esc(t.note||'—')}</span></div>
     <div class="row-amt ${inc?'inc':'exp'}">${inc?'+':'−'}${money(t.amount)}<span class="row-date">${fmtDay(t.date)}</span></div>
     ${withDel?`<button class="mini-x" data-del="${t.id}" aria-label="Удалить">✕</button>`:''}
   </div>`;}
@@ -1254,7 +1296,7 @@ function renderHome(){
   $('hInc').textContent=money(r.inc,true);
   $('hExp').textContent=money(r.exp);
   const net=r.inc-r.exp;$('hNet').textContent=money(net,net>0);
-  $('hNet').style.color=net>=0?'var(--chart)':'var(--tx2)';
+  $('hNet').style.color=net>=0?'var(--inc)':'var(--exp)';
   // budget
   const b=+state.settings.budget||0;const spent=r0spent();
   if(b>0){$('budgetCard').style.display='';
@@ -1462,29 +1504,269 @@ function confirmModal(text,cb){
   $('mCancel').onclick=closeSheet;
   $('mOk').onclick=()=>{closeSheet();cb();};}
 
-function opModal(){
+function opModal(pre){pre=pre&&pre.scanned?pre:null;
   const expCats=state.cats.filter(c=>c.type==='exp'),incCats=state.cats.filter(c=>c.type==='inc');
-  openSheet(`<h3>Новая операция</h3>
+  openSheet(`<h3>Новая операция</h3>${pre?'<div class="scan-banner">✦ Распознано с фото — проверьте и сохраните'+curNotice(pre.currency)+'</div>':''}
     <div class="seg" id="mSeg" style="margin-top:16px"><div class="seg-pill"></div>
       <button class="seg-btn on" data-v="exp">Расход</button>
       <button class="seg-btn" data-v="inc">Доход</button></div>
-    <div class="field"><span class="lbl">Сумма</span><input id="mAmt" inputmode="decimal" placeholder="0"></div>
+    <div class="field"><span class="lbl">Сумма</span><input id="mAmt" inputmode="decimal" placeholder="0" value="${pre?pre.amount:''}"></div>
     <div class="field"><span class="lbl">Категория</span><select id="mCat"></select></div>
-    <div class="field"><span class="lbl">Заметка</span><input id="mNote" type="text" placeholder="Необязательно"></div>
-    <div class="field"><span class="lbl">Дата</span><input id="mDate" type="date" value="${dkey(new Date())}"></div>
+    <div class="field"><span class="lbl">Заметка</span><input id="mNote" type="text" placeholder="Необязательно" value="${esc(pre&&pre.note||'')}"></div>
+    <div class="field"><span class="lbl">Дата</span><input id="mDate" type="date" value="${esc(pre&&pre.date||dkey(new Date()))}"></div>
     <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Отмена</button><button class="btn" id="mSave">Сохранить</button></div>`);
-  let type='exp';
+  let type=pre&&pre.type==='inc'?'inc':'exp';
   const fillCats=()=>{const arr=type==='exp'?expCats:incCats;
     $('mCat').innerHTML=(arr.length?arr:[{name:'Прочее'}]).map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');};
   fillCats();
   segWire($('mSeg'),v=>{type=v;fillCats();});
+  if(type==='inc')segSet($('mSeg'),'inc');
+  if(pre&&pre.category)$('mCat').value=pre.category;
+  wireCurSwitch();
   $('mCancel').onclick=closeSheet;
   $('mSave').onclick=()=>{
     const amt=parseMoney($('mAmt').value);
     if(!amt){toast('Введите корректную сумму');return;}
     state.tx.push({id:uid('t'),date:$('mDate').value||dkey(new Date()),type,amount:amt,category:$('mCat').value,note:$('mNote').value.trim()});
-    saveAll();closeSheet();renderAll();toast('Операция добавлена');};
+    saveAll();closeSheet();renderAll();toast(type==='inc'?'Приход добавлен':'Расход добавлен');};
 }
+
+/* ============ AI: распознавание чеков по фото (Gemini) ============ */
+const GEMINI_API_KEY='AQ.Ab8RN6LjbMTlvkO9kGmZfixjtStUHmz3P6dCZo3faiq0kkgHsA';
+const GEMINI_MODELS=['gemini-flash-lite-latest','gemini-3.8-flash']; // Lite: ~500 запросов/день, Flash — запасной (~20/день)
+const GEMINI_ROUTES=[
+  m=>({url:`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,headers:{'x-goog-api-key':GEMINI_API_KEY}})
+];
+let scanId=0;
+
+function quickModal(){
+  openSheet(`<h3>Быстрые действия</h3>
+    <div class="qa-list">
+      <button class="qa" id="qaCam"><span class="qa-ic">◎</span><span><b>Сфотографировать чек</b><small>Распознаю сумму, дату и категорию</small></span></button>
+      <button class="qa" id="qaPick"><span class="qa-ic">▣</span><span><b>Загрузить фото</b><small>Чек, квитанция или скриншот из галереи</small></span></button>
+      <button class="qa" id="qaMan"><span class="qa-ic">✎</span><span><b>Добавить вручную</b><small>Расход или доход</small></span></button>
+    </div>
+    <input type="file" id="qaFileCam" accept="image/*" capture="environment" hidden>
+    <input type="file" id="qaFilePick" accept="image/*" multiple hidden>
+    <div class="hint" style="margin-top:14px">Можно выбрать сразу несколько скриншотов (до 6) — они уйдут одним запросом. Распознаваний сегодня: ${aiUseGet()}.</div>`);
+  $('qaCam').onclick=()=>$('qaFileCam').click();
+  $('qaPick').onclick=()=>$('qaFilePick').click();
+  $('qaMan').onclick=()=>{closeSheet();setTimeout(()=>opModal(),160);};
+  ['qaFileCam','qaFilePick'].forEach(id=>$(id).addEventListener('change',e=>{
+    const fs=Array.from(e.target.files||[]).slice(0,6);if(fs.length)scanReceipt(fs);}));
+}
+
+function fileToJpegBase64(file,maxSide=2000){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file),img=new Image();
+    img.onload=()=>{
+      try{
+        const k=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));
+        const c=document.createElement('canvas');
+        c.width=Math.max(1,Math.round(img.naturalWidth*k));c.height=Math.max(1,Math.round(img.naturalHeight*k));
+        const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);
+        const d=c.toDataURL('image/jpeg',0.86);URL.revokeObjectURL(url);
+        resolve({b64:d.split(',')[1],preview:d});
+      }catch(e){URL.revokeObjectURL(url);reject(e);}
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Не удалось открыть изображение'));};
+    img.src=url;
+  });
+}
+
+function buildPrompt(){
+  const exp=state.cats.filter(c=>c.type==='exp').map(c=>c.name),inc=state.cats.filter(c=>c.type==='inc').map(c=>c.name);
+  return `Ты — модуль распознавания финансовых данных в приложении учёта личных финансов.
+На изображении может быть: (а) чек или квитанция об оплате — одна операция; (б) скриншот списка операций («История») из банковского приложения — несколько операций; (в) скриншот одной операции. Прочитай текст и верни ТОЛЬКО один JSON-объект без пояснений и без markdown:
+{"ok":true,"items":[{"type":"exp","amount":0,"date":"YYYY-MM-DD","category":"","note":"","currency":""}]}
+
+Сегодняшняя дата: ${dkey(new Date())}. Валюта приложения: ${state.settings.currency}.
+
+Правила:
+- Каждая операция — отдельный элемент в "items". Для чека или квитанции — один элемент с ИТОГОВОЙ суммой.
+- В списке операций дата — это заголовок группы (например «19 сентября»): она относится ко всем операциям ниже, до следующего заголовка. Если года нет, используй текущий; если получается дата в будущем — предыдущий год.
+- В квитанции дата — это дата самой операции («Дата и время»), а НЕ дата формирования квитанции, не время на часах телефона и не дата в служебных строках.
+- Пропускай операции, у которых название или сумма обрезаны на краю экрана и видны не полностью.
+- Кешбэк, баллы и бонусы (мелкие суммы со знаком «+», обычно под основной суммой) — это НЕ доход, не включай их.
+- "type": "exp" для покупок, оплат, списаний с карты, квитанций об оплате; "inc" только для реальных поступлений (зарплата, пополнение, входящий перевод, возврат).
+- "amount": положительное число, десятичный разделитель точка, без валюты и пробелов.
+- "category": ровно одно название из списка. Для расходов: ${JSON.stringify(exp)}. Для доходов: ${JSON.stringify(inc)}. Выбирай по смыслу, учитывая название магазина, категорию банка и MCC-код, если они указаны.
+- "note": название магазина или получателя платежа, до 40 символов, как в документе.
+- "currency": трёхбуквенный код валюты (RUB, EUR, USD…). RUR и ₽ — это RUB.
+- Изображений может быть несколько: это части одного списка или разные документы. Скриншоты могут перекрываться — не дублируй одну и ту же операцию дважды.
+- Если на изображениях нет финансовых операций, верни {"ok":false,"items":[]}.`;
+}
+
+function hashStr(str){let h=2166136261;for(let i=0;i<str.length;i+=7){h^=str.charCodeAt(i);h=Math.imul(h,16777619);}return (h>>>0).toString(36)+'-'+str.length;}
+function aiCacheGet(k){try{return (JSON.parse(localStorage.getItem('mono.aiCache')||'{}'))[k]||null;}catch(e){return null;}}
+function aiCachePut(k,v){try{const c=JSON.parse(localStorage.getItem('mono.aiCache')||'{}');delete c[k];c[k]=v;
+  const ks=Object.keys(c);while(ks.length>25)delete c[ks.shift()];localStorage.setItem('mono.aiCache',JSON.stringify(c));}catch(e){}}
+function aiUseGet(){try{const u=JSON.parse(localStorage.getItem('mono.aiUse')||'{}');return u.d===dkey(new Date())?u.n||0:0;}catch(e){return 0;}}
+function aiUseBump(){try{localStorage.setItem('mono.aiUse',JSON.stringify({d:dkey(new Date()),n:aiUseGet()+1}));}catch(e){}}
+
+async function callGemini(b64s,onStage){
+  const parts=[{text:buildPrompt()}].concat(b64s.map(d=>({inlineData:{mimeType:'image/jpeg',data:d}})));
+  const body=JSON.stringify({contents:[{role:'user',parts}],generationConfig:{temperature:0,responseMimeType:'application/json'}});
+  const log=[],DELAYS=[0,4000,9000],sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  let models=GEMINI_MODELS.map((_,i)=>i),quota=null,overload=false;
+  for(let round=0;round<DELAYS.length&&models.length;round++){
+    if(round>0){
+      for(let t=Math.round(DELAYS[round]/1000);t>0;t--){
+        if(onStage)onStage(`Сервер нейросети перегружен. Повтор ${round+1}/${DELAYS.length} через ${t} с…`);
+        await sleep(1000);
+      }
+    }
+    const retry=[];
+    for(const mi of models){
+      const model=GEMINI_MODELS[mi],r=GEMINI_ROUTES[0](model);
+      if(onStage)onStage(`Отправляю на распознавание (${model})…`);
+      const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),60000);
+      let res;
+      try{res=await fetch(r.url,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},r.headers),body,signal:ctl.signal});}
+      catch(e){clearTimeout(tm);log.push(`${model}: `+(e.name==='AbortError'?'нет ответа 60 с':'нет сети или запрос заблокирован'));retry.push(mi);continue;}
+      clearTimeout(tm);
+      if(res.ok){
+        let j;try{j=await res.json();}catch(e){log.push(`${model}: ответ не JSON`);retry.push(mi);continue;}
+        const txt=(((j.candidates||[])[0]||{}).content||{parts:[]}).parts.map(p=>p.text||'').join('');
+        if(!txt){const why=(j.promptFeedback&&j.promptFeedback.blockReason)||((j.candidates||[])[0]||{}).finishReason||'пусто';log.push(`${model}: пустой ответ (${why})`);retry.push(mi);continue;}
+        aiUseBump();
+        return txt;
+      }
+      let msg='';try{const e=await res.json();msg=(e.error&&e.error.message)||'';}catch(_){}
+      log.push(`${model}: ${res.status} ${msg}`.trim().slice(0,200));
+      if(res.status===429){quota=/minute/i.test(msg)&&!/day/i.test(msg)?'minute':'day';continue;} // у каждой модели свой лимит — пробуем следующую
+      if(res.status>=500){overload=true;retry.push(mi);}
+    }
+    models=retry;
+  }
+  const err=new Error(
+    quota&&!overload?(quota==='minute'?'Слишком много запросов подряд — подождите минуту и повторите':'Дневной бесплатный лимит нейросети исчерпан — он сбрасывается раз в сутки. Пока добавляйте операции вручную')
+    :overload?'Сервер нейросети перегружен — попробуйте ещё раз через минуту':'Нейросеть не ответила');
+  err.log=log.slice(-4);throw err;
+}
+
+function parseAiJson(txt){
+  const t=String(txt).replace(/```json|```/g,'').trim();
+  const a=t.indexOf('{'),b=t.lastIndexOf('}');
+  if(a<0||b<a)throw new Error('не удалось разобрать ответ');
+  return JSON.parse(t.slice(a,b+1));
+}
+
+function matchCategory(type,name){
+  const list=state.cats.filter(c=>c.type===type).map(c=>c.name);
+  if(!list.length)return 'Прочее';
+  const n=String(name||'').trim().toLowerCase();
+  return list.find(c=>c.toLowerCase()===n)
+    ||list.find(c=>n&&(c.toLowerCase().includes(n)||n.includes(c.toLowerCase())))
+    ||(type==='exp'&&list.includes('Прочее')?'Прочее':list[0]);
+}
+
+function normalizeScan(j){
+  const type=j.type==='inc'?'inc':'exp';
+  const amount=parseMoney(typeof j.amount==='number'?String(j.amount):String(j.amount||'').replace(/[^\d.,]/g,''));
+  let date=String(j.date||'').trim();
+  const m=date.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2}|\d{4})$/);
+  if(m)date=`${m[3].length===2?'20'+m[3]:m[3]}-${pad(m[2])}-${pad(m[1])}`;
+  const today=new Date();let ok=/^\d{4}-\d{2}-\d{2}$/.test(date);
+  if(ok){const d=pdate(date);ok=!isNaN(d)&&dkey(d)===date&&d<=nextDay(nextDay(today))&&d.getFullYear()>=2000;}
+  if(!ok)date=dkey(today);
+  let cur=String(j.currency||'').toUpperCase().trim();if(cur==='RUR'||cur==='₽')cur='RUB';
+  return{scanned:true,type,amount,date,category:matchCategory(type,j.category),note:String(j.note||'').trim().slice(0,60),currency:cur};
+}
+
+function curNotice(cur){
+  if(!cur||cur===state.settings.currency||!SYM[cur])return '';
+  return `<br><span style="font-weight:500;color:var(--tx2)">Валюта документа — ${cur}, в приложении — ${state.settings.currency}. Суммы сохранятся как есть.</span> <button class="link" data-swcur="${cur}" style="padding:4px 0;text-decoration:underline">Переключить приложение на ${cur}</button>`;
+}
+function wireCurSwitch(){
+  sheet.querySelectorAll('[data-swcur]').forEach(b=>b.onclick=()=>{
+    state.settings.currency=b.dataset.swcur;saveAll();renderAll();toast('Валюта: '+b.dataset.swcur);
+    const box=b.closest('.scan-banner');if(box)box.querySelectorAll('br,span,button').forEach(x=>x.remove());});
+}
+
+function multiModal(items){
+  const isDup=it=>state.tx.some(t=>t.date===it.date&&t.type===it.type&&Math.abs(t.amount-it.amount)<0.005);
+  const catOpts=(type,sel)=>{const arr=state.cats.filter(c=>c.type===type);
+    return (arr.length?arr:[{name:'Прочее'}]).map(c=>`<option value="${esc(c.name)}"${c.name===sel?' selected':''}>${esc(c.name)}</option>`).join('');};
+  const cur=(items.find(i=>i.currency)||{}).currency;
+  const rows=items.map((it,i)=>{const dup=isDup(it);return `<div class="mi" data-i="${i}">
+    <div class="mi-top">
+      <input type="checkbox" class="mi-ck"${dup?'':' checked'}>
+      <input type="text" class="mi-note" value="${esc(it.note)}" placeholder="Название">
+      <input type="text" class="mi-amt" inputmode="decimal" value="${it.amount}">
+    </div>
+    <div class="mi-bot">
+      <select class="mi-type"><option value="exp"${it.type==='exp'?' selected':''}>Расход</option><option value="inc"${it.type==='inc'?' selected':''}>Приход</option></select>
+      <select class="mi-cat">${catOpts(it.type,it.category)}</select>
+      <input type="date" class="mi-date" value="${esc(it.date)}">
+    </div>
+    ${dup?'<div class="mi-dup">Похоже, такая операция уже добавлена</div>':''}
+  </div>`;}).join('');
+  openSheet(`<h3>Найдено операций: ${items.length}</h3>
+    <div class="scan-banner">✦ Распознано с фото — отметьте, что добавить${curNotice(cur)}</div>
+    <div class="mi-list">${rows}</div>
+    <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Отмена</button><button class="btn" id="mSave">Добавить</button></div>`);
+  wireCurSwitch();
+  const cards=[...sheet.querySelectorAll('.mi')];
+  const upd=()=>{const n=cards.filter(c=>c.querySelector('.mi-ck').checked).length;
+    const bt=$('mSave');bt.textContent=n?`Добавить (${n})`:'Добавить';bt.disabled=!n;bt.style.opacity=n?'':'.45';};
+  cards.forEach(c=>{
+    c.querySelector('.mi-ck').addEventListener('change',upd);
+    c.querySelector('.mi-type').addEventListener('change',e=>{c.querySelector('.mi-cat').innerHTML=catOpts(e.target.value,'');});
+  });
+  upd();
+  $('mCancel').onclick=closeSheet;
+  $('mSave').onclick=()=>{
+    let n=0,bad=0;
+    cards.forEach(c=>{
+      if(!c.querySelector('.mi-ck').checked)return;
+      const amt=parseMoney(c.querySelector('.mi-amt').value);
+      if(!amt){bad++;return;}
+      state.tx.push({id:uid('t'),date:c.querySelector('.mi-date').value||dkey(new Date()),type:c.querySelector('.mi-type').value,
+        amount:amt,category:c.querySelector('.mi-cat').value,note:c.querySelector('.mi-note').value.trim()});
+      n++;
+    });
+    if(!n){toast('Проверьте суммы');return;}
+    saveAll();closeSheet();renderAll();toast(`Добавлено операций: ${n}`+(bad?` (пропущено: ${bad})`:''));
+  };
+}
+
+async function scanReceipt(files){
+  files=Array.isArray(files)?files:[files];
+  const my=++scanId;
+  openSheet(`<h3>Распознаю…</h3><div class="scan-loader"><i></i></div>
+    <div class="scan-hint">Читаю суммы, даты и категории</div>
+    <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Отмена</button></div>`);
+  $('mCancel').onclick=()=>{scanId++;closeSheet();};
+  try{
+    const hint0=sheet.querySelector('.scan-hint');if(hint0)hint0.textContent='Подготавливаю фото…';
+    const imgs=[];
+    for(const f of files)imgs.push(await fileToJpegBase64(f,files.length>1?1600:2000));
+    if(my!==scanId)return;
+    const sh=sheet.querySelector('.scan-hint');
+    if(sh)sh.insertAdjacentHTML('afterend',`<img class="scan-prev" src="${imgs[0].preview}" alt="">`);
+    const b64s=imgs.map(i=>i.b64),key=hashStr(b64s.join('|'));
+    let txt=aiCacheGet(key);const cached=!!txt;
+    if(cached){const h=sheet.querySelector('.scan-hint');if(h)h.textContent='Это фото уже распознавалось — беру результат из памяти';}
+    else txt=await callGemini(b64s,t=>{const h=sheet.querySelector('.scan-hint');if(h&&my===scanId)h.textContent=t;});
+    if(my!==scanId)return;
+    const j=parseAiJson(txt);
+    let list=Array.isArray(j.items)?j.items:(j.amount!=null?[j]:[]);
+    const items=list.slice(0,60).map(normalizeScan).filter(x=>x.amount);
+    if(j.ok===false||!items.length)throw new Error('на фото не найдено операций с суммой');
+    if(!cached)aiCachePut(key,txt);
+    closeSheet();
+    setTimeout(()=>items.length===1?opModal(items[0]):multiModal(items),cached?500:180);
+  }catch(e){
+    if(my!==scanId)return;
+    openSheet(`<h3>Не получилось распознать</h3>
+      <div class="scan-err">${esc(e.message||String(e))}${e.log?'<br><br>'+e.log.map(esc).join('<br>'):''}</div>
+      <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Закрыть</button><button class="btn" id="mManual">Вручную</button></div>`);
+    $('mCancel').onclick=closeSheet;
+    $('mManual').onclick=()=>{closeSheet();setTimeout(()=>opModal(),160);};
+  }
+}
+
 function goalModal(){
   openSheet(`<h3>Новая цель</h3>
     <div class="field"><span class="lbl">Название</span><input id="gName" type="text" placeholder="Например, отпуск"></div>
@@ -1627,7 +1909,7 @@ function init(){
   segSet($('segHome'),'month');segSet($('segStType'),'exp');segSet($('segStPeriod'),'month');segSet($('segHist'),'all');
   $('setCur').addEventListener('change',e=>{state.settings.currency=e.target.value;saveAll();renderAll();toast('Валюта: '+e.target.value);});
   $('setBudget').addEventListener('change',e=>{const v=parseMoney(e.target.value);state.settings.budget=v||0;saveAll();renderHome();toast('Бюджет сохранён');});
-  $('fab').addEventListener('click',opModal);
+  $('fab').addEventListener('click',quickModal);
   $('btnNewGoal').addEventListener('click',goalModal);
   $('btnNewCat').addEventListener('click',catModal);
   $('toHist').addEventListener('click',()=>goTo(3));
