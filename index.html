@@ -9,10 +9,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2716%27 fill=%27%230b0b0d%27/%3E%3Ccircle cx=%2732%27 cy=%2732%27 r=%2714%27 fill=%27none%27 stroke=%27%23f5f5f2%27 stroke-width=%276%27/%3E%3C/svg%3E">
 <title>Mono — личные финансы</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -825,12 +822,139 @@ body.light{--inc:#12834a;--exp:#d23a3a}
 .mi-dup{margin-top:8px;font-size:11px;color:var(--exp);font-weight:700}
 .mi-list~.btn-row{position:sticky;bottom:0;margin-top:0 !important;padding:12px 0 2px;background:#17171b}
 body.light .mi-list~.btn-row{background:#fff}
+
+/* ============================================================
+   LIQUID GLASS — включается переключателем в настройках (body.glass)
+   Оптимизировано: blur только на нижнем меню и шторках, всё остальное — градиенты и блики.
+   ============================================================ */
+@property --gl{syntax:'<number>';inherits:false;initial-value:0}
+.glass-bg{display:none}
+body.glass{
+  --g1:rgba(255,255,255,.095); --g2:rgba(255,255,255,.028); --g-bd:rgba(255,255,255,.15);
+  --g-hi:rgba(255,255,255,.26); --g-sh:rgba(0,0,0,.5); --g-bar:rgba(255,255,255,.07);
+  --g-sheet:rgba(14,14,14,.74); --g-spec:255,255,255; --bg:#030303;
+  --b1:rgba(255,255,255,.17); --b2:rgba(255,255,255,.11); --b3:rgba(255,255,255,.13);
+}
+body.glass.light{
+  --g1:rgba(255,255,255,.70); --g2:rgba(255,255,255,.34); --g-bd:rgba(255,255,255,.85);
+  --g-hi:rgba(255,255,255,1); --g-sh:rgba(0,0,0,.20); --g-bar:rgba(255,255,255,.55);
+  --g-sheet:rgba(242,242,240,.80); --g-spec:255,255,255; --bg:#bcbcb9;
+  --b1:rgba(255,255,255,.55); --b2:rgba(255,255,255,.38); --b3:rgba(60,60,60,.16);
+  --tx2:#4a4a52; --tx3:#6a6a73;
+}
+body.glass .app{background:linear-gradient(180deg,#080808,#030303)}
+body.glass.light .app{background:linear-gradient(180deg,#cfcfcc,#bcbcb9)}
+
+/* живой фон */
+body.glass .glass-bg{display:block;position:absolute;top:0;bottom:0;left:-90px;right:-90px;z-index:-1;overflow:hidden;pointer-events:none;contain:strict;transition:transform .65s cubic-bezier(.3,.95,.3,1)}
+body.glass .glass-bg.drag{transition:none}
+.glass-bg i{position:absolute;width:92%;aspect-ratio:1;border-radius:50%;will-change:transform}
+.glass-bg i:nth-child(1){left:-30%;top:-12%;background:radial-gradient(circle,var(--b1) 0,transparent 68%);animation:gl-float1 22s ease-in-out infinite alternate}
+.glass-bg i:nth-child(2){right:-42%;top:30%;background:radial-gradient(circle,var(--b2) 0,transparent 68%);animation:gl-float2 26s ease-in-out infinite alternate}
+.glass-bg i:nth-child(3){left:-6%;bottom:-26%;background:radial-gradient(circle,var(--b3) 0,transparent 68%);animation:gl-float3 30s ease-in-out infinite alternate}
+@keyframes gl-float1{to{transform:translate3d(26%,20%,0)}}
+@keyframes gl-float2{to{transform:translate3d(-28%,-16%,0)}}
+@keyframes gl-float3{to{transform:translate3d(22%,-24%,0)}}
+
+body.glass header{background:transparent !important}
+
+/* стеклянные поверхности (без backdrop-filter — фон и так плавный, зато нет лагов) */
+body.glass .card,
+body.glass .tile{
+  background:
+    radial-gradient(260px circle at var(--mx,50%) var(--my,0%),rgba(var(--g-spec),calc(.18*var(--gl))),transparent 62%),
+    linear-gradient(135deg,var(--g1),var(--g2));
+  border-color:var(--g-bd);
+  box-shadow:inset 0 1px 0 var(--g-hi),inset 0 -1px 0 rgba(255,255,255,.04),0 8px 22px var(--g-sh);
+  transition:--gl .4s ease,border-color .3s,box-shadow .3s,color .42s;
+}
+body.glass .seg{
+  background:linear-gradient(135deg,var(--g1),var(--g2));border-color:var(--g-bd);
+  box-shadow:inset 0 1px 0 var(--g-hi),0 6px 16px var(--g-sh);touch-action:pan-y;
+}
+/* ползунки: стеклянная линза, двигаются пружиной через JS (края «перетекают») */
+body.glass .seg-pill,
+body.glass .tab-pill{
+  transition:transform .42s cubic-bezier(.34,1.56,.64,1),background .3s,box-shadow .3s !important;
+  transform-origin:center;
+  background:linear-gradient(180deg,#fff,#dedee4);
+  box-shadow:inset 0 1px 0 #fff,inset 0 -2px 5px rgba(0,0,0,.07),0 5px 16px rgba(0,0,0,.4);
+}
+body.glass.light .seg-pill,
+body.glass.light .tab-pill{
+  background:linear-gradient(180deg,#3d3d43,#161618);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 5px 16px rgba(0,0,0,.28);
+}
+body.glass .seg.press .seg-pill{
+  transform:scale(1.1,1.18);
+  background:linear-gradient(180deg,rgba(255,255,255,.92),rgba(222,222,230,.80));
+  box-shadow:inset 0 1px 0 #fff,0 12px 28px rgba(0,0,0,.5);
+}
+body.glass.light .seg.press .seg-pill{
+  background:linear-gradient(180deg,rgba(66,66,74,.94),rgba(22,22,24,.86));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 12px 28px rgba(0,0,0,.35);
+}
+body.glass .seg.dragging .seg-btn{transition:none}
+
+/* нижнее меню — единственная «настоящая» стеклянная панель с blur */
+body.glass .tabbar{
+  background:var(--g-bar);border-color:var(--g-bd);
+  -webkit-backdrop-filter:blur(20px) saturate(170%);backdrop-filter:blur(20px) saturate(170%);
+  box-shadow:inset 0 1px 0 var(--g-hi),inset 0 -1px 0 rgba(255,255,255,.05),0 14px 34px var(--g-sh);
+}
+body.glass .tabbar.free .tab-pill{box-shadow:inset 0 1px 0 #fff,0 8px 26px rgba(255,255,255,.26),0 5px 16px rgba(0,0,0,.4)}
+body.glass.light .tabbar.free .tab-pill{box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 8px 24px rgba(0,0,0,.28)}
+
+body.glass .btn{background:linear-gradient(180deg,#fff,#dcdce2);box-shadow:inset 0 1px 0 #fff,0 6px 16px rgba(0,0,0,.35);transition:transform .35s cubic-bezier(.34,1.56,.64,1),box-shadow .3s}
+body.glass.light .btn{background:linear-gradient(180deg,#3d3d43,#161618);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 6px 16px rgba(0,0,0,.25)}
+body.glass .btn:active{transform:scale(.95)}
+body.glass .btn-ghost,
+body.glass.light .btn-ghost{
+  background:linear-gradient(135deg,var(--g1),var(--g2));border:1px solid var(--g-bd);color:var(--tx);
+  box-shadow:inset 0 1px 0 var(--g-hi),0 4px 12px var(--g-sh);
+}
+body.glass .fab{background:linear-gradient(180deg,#fff,#dcdce2);box-shadow:inset 0 1px 0 #fff,0 10px 26px rgba(0,0,0,.5)}
+body.glass.light .fab{background:linear-gradient(180deg,#3d3d43,#161618);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 10px 26px rgba(0,0,0,.3)}
+body.glass .fab:active{transform:scale(.9)}
+body.glass .theme-toggle{
+  background:linear-gradient(135deg,var(--g1),var(--g2));border-color:var(--g-bd);
+  box-shadow:inset 0 1px 0 var(--g-hi),0 4px 12px var(--g-sh);
+}
+body.glass .toast{background:rgba(255,255,255,.9);box-shadow:inset 0 1px 0 #fff,0 10px 26px rgba(0,0,0,.45)}
+body.glass.light .toast{background:rgba(22,22,24,.88);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 10px 26px rgba(0,0,0,.3)}
+
+/* шторка: плотное тёмное стекло, без анимации blur на весь экран */
+body.glass .overlay{background:rgba(0,0,0,.55)}
+body.glass.light .overlay{background:rgba(20,20,20,.32)}
+body.glass .sheet{
+  background:var(--g-sheet) !important;border-color:var(--g-bd);
+  -webkit-backdrop-filter:blur(26px) saturate(170%);backdrop-filter:blur(26px) saturate(170%);
+  box-shadow:inset 0 1px 0 var(--g-hi),0 -16px 48px var(--g-sh);
+}
+
+/* переключатель */
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.set-row p{margin-bottom:0 !important}
+.sw{position:relative;flex:none;width:54px;height:32px;padding:0;border-radius:99px;border:1px solid var(--line2);background:rgba(255,255,255,.08);cursor:pointer;transition:background .3s,border-color .3s}
+.sw i{position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:99px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.4);transition:transform .45s cubic-bezier(.34,1.56,.64,1),width .25s,background .3s}
+.sw[aria-checked="true"]{background:#fff;border-color:#fff}
+.sw[aria-checked="true"] i{transform:translateX(22px);background:#101012;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.sw:active i{width:30px}
+.sw[aria-checked="true"]:active i{transform:translateX(16px)}
+body.light .sw{background:rgba(0,0,0,.09)}
+body.light .sw[aria-checked="true"]{background:#161618;border-color:#161618}
+body.light .sw[aria-checked="true"] i{background:#fff}
+
+@media (prefers-reduced-motion:reduce){
+  .glass-bg i{animation:none !important}
+}
 </style>
 </head>
 <body>
 <div class="dots"></div>
 
 <div class="app" id="app">
+  <div class="glass-bg" aria-hidden="true"><i></i><i></i><i></i></div>
   <header>
     <div>
       <div class="brand">MONO<span class="caret"></span></div>
@@ -960,6 +1084,15 @@ body.light .mi-list~.btn-row{background:#fff}
 
       <!-- ======================= НАСТРОЙКИ ======================= -->
       <section class="page" id="pg4">
+        <article class="card set-card rv" style="--d:.0s">
+          <div class="set-row">
+            <div>
+              <span class="lbl">Жидкое стекло</span>
+              <p>Стеклянные поверхности, живой фон, блики и «жидкие» анимации. Выключите, если телефон тормозит.</p>
+            </div>
+            <button class="sw" id="glassSwitch" type="button" role="switch" aria-checked="true" aria-label="Жидкое стекло"><i></i></button>
+          </div>
+        </article>
         <article class="card set-card rv" style="--d:.02s">
           <span class="lbl">Валюта</span>
           <p>Используется во всём приложении.</p>
@@ -1102,8 +1235,47 @@ function rangeTotals(start,end,type){let inc=0,exp=0;
 function inRange(t,start,end){const d=pdate(t.date);return d>=start&&d<end;}
 
 /* ============ segmented controls ============ */
+/* ---- «жидкие» ползунки: каждый край плашки движется своей пружиной (передний быстрее, задний тянется) ---- */
+function setPillRaw(p,v,s,e){if(v){p.style.top=s+'px';p.style.height=(e-s)+'px';}else{p.style.left=s+'px';p.style.width=(e-s)+'px';}}
+function pillEdges(p,v){const s=parseFloat(v?p.style.top:p.style.left)||0,l=parseFloat(v?p.style.height:p.style.width)||0;return[s,s+l];}
+function pillCancel(p){const q=p._q;if(q){if(q.raf)cancelAnimationFrame(q.raf);q.raf=0;q.running=false;}}
+function springPill(p,v,tS,tE){
+  const q=p._q||(p._q={running:false,raf:0});
+  if(q.running){
+    if(Math.abs(q.tS-tS)<.3&&Math.abs(q.tE-tE)<.3)return;
+    q.tS=tS;q.tE=tE;q.dir=((tS+tE)/2>=(q.s+q.e)/2)?1:-1;return;
+  }
+  const [s0,e0]=pillEdges(p,v);
+  if(Math.abs(s0-tS)<.4&&Math.abs(e0-tE)<.4)return;
+  q.s=s0;q.e=e0;q.vs=0;q.ve=0;q.tS=tS;q.tE=tE;q.v=v;
+  q.dir=((tS+tE)/2>=(s0+e0)/2)?1:-1;q.running=true;
+  let last=performance.now();
+  const step=now=>{
+    const dt=Math.min(.034,(now-last)/1000);last=now;
+    const lead=q.dir>0; /* ведущий край: правый/нижний при движении вперёд */
+    const kS=lead?170:300,cS=lead?18:24,kE=lead?300:170,cE=lead?24:18;
+    const n=2,h=dt/n;
+    for(let i=0;i<n;i++){
+      q.vs+=(kS*(q.tS-q.s)-cS*q.vs)*h;q.s+=q.vs*h;
+      q.ve+=(kE*(q.tE-q.e)-cE*q.ve)*h;q.e+=q.ve*h;
+    }
+    if(q.e-q.s<10)q.e=q.s+10;
+    setPillRaw(p,q.v,q.s,q.e);
+    if(Math.abs(q.tS-q.s)<.3&&Math.abs(q.tE-q.e)<.3&&Math.abs(q.vs)<.6&&Math.abs(q.ve)<.6){
+      setPillRaw(p,q.v,q.tS,q.tE);q.running=false;q.raf=0;return;
+    }
+    q.raf=requestAnimationFrame(step);
+  };
+  q.raf=requestAnimationFrame(step);
+}
 function syncSeg(seg){if(!seg)return;const pill=seg.querySelector('.seg-pill');const on=seg.querySelector('.seg-btn.on');
-  if(!pill||!on)return;pill.style.left=on.offsetLeft+'px';pill.style.width=on.offsetWidth+'px';}
+  if(!pill||!on||!on.offsetWidth)return;
+  if(seg.classList.contains('dragging'))return;
+  const s=on.offsetLeft,e=s+on.offsetWidth;
+  if(document.body.classList.contains('glass')){
+    if(!pill.style.width)setPillRaw(pill,false,s,e);else springPill(pill,false,s,e);
+  }else{pillCancel(pill);pill.style.left=s+'px';pill.style.width=on.offsetWidth+'px';}
+}
 function syncAllSegs(){document.querySelectorAll('.seg').forEach(syncSeg);}
 function segSet(seg,val){seg.querySelectorAll('.seg-btn').forEach(b=>b.classList.toggle('on',b.dataset.v===val));syncSeg(seg);}
 function segWire(seg,cb){seg.querySelectorAll('.seg-btn').forEach(b=>b.addEventListener('click',()=>{
@@ -1126,7 +1298,14 @@ function pillPos(i){
 }
 function setPill(a,b,free){
   tabbar.classList.toggle('free',!!free);
-  if(isDesktop()){
+  const v=isDesktop();
+  if(document.body.classList.contains('glass')){
+    if(free||!tabPill.style.width&&!tabPill.style.height||(v?!tabPill.style.height:!tabPill.style.width)){pillCancel(tabPill);setPillRaw(tabPill,v,a,a+b);}
+    else springPill(tabPill,v,a,a+b);
+    return;
+  }
+  pillCancel(tabPill);
+  if(v){
     tabPill.style.top=a+'px';
     tabPill.style.height=b+'px';
   }else{
@@ -1154,12 +1333,17 @@ function indicatorProgress(pr){
 }
 
 function setTrackPx(idx,dx){track.style.transition='none';track.style.transform=`translate3d(${-idx*(navWidth||viewport.clientWidth)+dx}px,0,0)`;}
+function glassFlow(pr,free){
+  const bg=document.querySelector('.glass-bg');if(!bg)return;
+  bg.classList.toggle('drag',!!free);
+  bg.style.transform='translate3d('+(-(pr-(PAGES-1)/2)*36).toFixed(1)+'px,0,0)';
+}
 function parallax(cur){
   const center=Math.round(cur);
   pages.forEach((pg,i)=>{
     const off=i-cur;
     if(Math.abs(i-center)>1){pg.style.opacity='';pg.style.transform='';return;}
-    pg.style.opacity=String(1-Math.min(1,Math.abs(off))*.5);
+    pg.style.opacity=document.body.classList.contains('glass')?'':String(1-Math.min(1,Math.abs(off))*.5);
     pg.style.transform=`translate3d(${off*26}px,0,0) scale(${1-Math.min(1,Math.abs(off))*.035})`;
   });
 }
@@ -1173,6 +1357,7 @@ function goTo(i,instant){
   if(instant){track.style.transition='none';}else{track.style.transition='';}
   track.style.transform=`translateX(${-i*100}%)`;
   indicatorTo(i,instant);
+  glassFlow(i,false);
   pages[i].scrollTop=0;
   if(i===1)renderStats();
   if(instant)requestAnimationFrame(()=>{track.style.transition='';});
@@ -1191,6 +1376,15 @@ function cachedIndicatorProgress(pr){
   pr=Math.max(0,Math.min(PAGES-1,pr));
   const i=Math.floor(pr),f=pr-i;
   const a=cachedPillPos(i),b=cachedPillPos(Math.min(i+1,PAGES-1));
+  if(document.body.classList.contains('glass')){
+    /* жидкое стекло: передний край плашки убегает вперёд, задний тянется следом */
+    const v=isDesktop(),k=v?'top':'left',sz=v?'height':'width';
+    const as=a[k],ae=a[k]+a[sz],bs=b[k],be=b[k]+b[sz];
+    const lead=1-(1-f)*(1-f),trail=f*f;
+    const st=as+(bs-as)*trail,en=ae+(be-ae)*lead;
+    setPill(st,Math.max(en-st,Math.min(a[sz],b[sz])*.9),true);
+    return;
+  }
   if(isDesktop()){
     setPill(a.top+(b.top-a.top)*f,a.height+(b.height-a.height)*f,true);
   }else{
@@ -1205,6 +1399,7 @@ function flushDrag(){
   setTrackPx(drag.idx,ddx);
   cachedIndicatorProgress(drag.idx-ddx/w);
   parallax(drag.idx-ddx/w);
+  glassFlow(drag.idx-ddx/w,true);
 }
 viewport.addEventListener('pointerdown',e=>{
   if(e.pointerType==='mouse'&&e.button!==0)return;
@@ -1531,15 +1726,12 @@ function opModal(pre){pre=pre&&pre.scanned?pre:null;
     saveAll();closeSheet();renderAll();toast(type==='inc'?'Приход добавлен':'Расход добавлен');};
 }
 
-/* ============ AI: распознавание чеков по фото (Gemini) ============ */
-const GEMINI_API_KEY='AQ.Ab8RN6Kg8dru1hgBQsazrN2A49B08SNpnUioOVKN-I_PWBXmbQ';
-// если ключ в коде сменили — старый ключ, введённый вручную в браузере, сбрасывается
-try{if(localStorage.getItem('mono.aiKeyBase')!==GEMINI_API_KEY){localStorage.removeItem('mono.aiKey');localStorage.setItem('mono.aiKeyBase',GEMINI_API_KEY);}}catch(e){}
-function getKey(){return (localStorage.getItem('mono.aiKey')||GEMINI_API_KEY).trim();}
-const GEMINI_MODELS=['gemini-flash-lite-latest','gemini-3.8-flash']; // Lite: ~500 запросов/день, Flash — запасной (~20/день)
-const GEMINI_ROUTES=[
-  m=>({url:`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,headers:{'x-goog-api-key':getKey()}})
-];
+/* ============ AI: распознавание чеков по фото (OpenRouter) ============ */
+const OPENROUTER_API_KEY='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';
+// Бесплатные модели с поддержкой картинок, пробуются по очереди.
+// (openrouter/free не используем: он может выбрать служебную safety-модель, которая отвечает «User Safety: safe».)
+const AI_MODELS=['nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free','google/gemma-4-31b-it:free','google/gemma-4-26b-a4b-it:free','nvidia/nemotron-nano-12b-v2-vl:free','dots-studio/dots-3-note-preview:free'];
+const AI_URL='https://openrouter.ai/api/v1/chat/completions';
 let scanId=0;
 
 function quickModal(){
@@ -1607,47 +1799,50 @@ function aiCachePut(k,v){try{const c=JSON.parse(localStorage.getItem('mono.aiCac
 function aiUseGet(){try{const u=JSON.parse(localStorage.getItem('mono.aiUse')||'{}');return u.d===dkey(new Date())?u.n||0:0;}catch(e){return 0;}}
 function aiUseBump(){try{localStorage.setItem('mono.aiUse',JSON.stringify({d:dkey(new Date()),n:aiUseGet()+1}));}catch(e){}}
 
-async function callGemini(b64s,onStage){
-  const parts=[{text:buildPrompt()}].concat(b64s.map(d=>({inlineData:{mimeType:'image/jpeg',data:d}})));
-  const body=JSON.stringify({contents:[{role:'user',parts}],generationConfig:{temperature:0,responseMimeType:'application/json'}});
-  const log=[],DELAYS=[0,4000,9000],sleep=ms=>new Promise(r=>setTimeout(r,ms));
-  let models=GEMINI_MODELS.map((_,i)=>i),quota=null,overload=false,auth=false;
-  for(let round=0;round<DELAYS.length&&models.length;round++){
+async function callAI(b64s,onStage){
+  const content=[{type:'text',text:buildPrompt()}].concat(b64s.map(d=>({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+d}})));
+  const headers={'Content-Type':'application/json','Authorization':'Bearer '+OPENROUTER_API_KEY,'X-Title':'Mono'};
+  if(/^https?:/.test(location.origin))headers['HTTP-Referer']=location.origin;
+  const log=[],DELAYS=[0,5000,10000],sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  let quota=false,overload=false,authErr=false,policy=false;
+  for(let round=0;round<DELAYS.length&&!authErr&&!policy;round++){
     if(round>0){
       for(let t=Math.round(DELAYS[round]/1000);t>0;t--){
-        if(onStage)onStage(`Сервер нейросети перегружен. Повтор ${round+1}/${DELAYS.length} через ${t} с…`);
+        if(onStage)onStage(`Все модели заняты. Повтор ${round+1}/${DELAYS.length} через ${t} с…`);
         await sleep(1000);
       }
     }
-    const retry=[];
-    for(const mi of models){
-      const model=GEMINI_MODELS[mi],r=GEMINI_ROUTES[0](model);
-      if(onStage)onStage(`Отправляю на распознавание (${model})…`);
-      const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),60000);
+    for(const model of AI_MODELS){
+      if(onStage)onStage(`Отправляю на распознавание (${model.split('/')[1].replace(':free','')})…`);
+      const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),75000);
       let res;
-      try{res=await fetch(r.url,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},r.headers),body,signal:ctl.signal});}
-      catch(e){clearTimeout(tm);log.push(`${model}: `+(e.name==='AbortError'?'нет ответа 60 с':'нет сети или запрос заблокирован'));retry.push(mi);continue;}
+      try{res=await fetch(AI_URL,{method:'POST',headers,body:JSON.stringify({model,messages:[{role:'user',content}],temperature:0,max_tokens:6000}),signal:ctl.signal});}
+      catch(e){clearTimeout(tm);log.push(model+': '+(e.name==='AbortError'?'нет ответа 75 с':'нет сети или запрос заблокирован'));overload=true;continue;}
       clearTimeout(tm);
-      if(res.ok){
-        let j;try{j=await res.json();}catch(e){log.push(`${model}: ответ не JSON`);retry.push(mi);continue;}
-        const txt=(((j.candidates||[])[0]||{}).content||{parts:[]}).parts.map(p=>p.text||'').join('');
-        if(!txt){const why=(j.promptFeedback&&j.promptFeedback.blockReason)||((j.candidates||[])[0]||{}).finishReason||'пусто';log.push(`${model}: пустой ответ (${why})`);retry.push(mi);continue;}
-        aiUseBump();
-        return txt;
+      let j=null;try{j=await res.json();}catch(_){}
+      if(res.ok&&j&&!j.error){
+        const m=((j.choices||[])[0]||{}).message||{};
+        let txt=m.content;
+        if(Array.isArray(txt))txt=txt.map(p=>p.text||'').join('');
+        if(txt&&String(txt).trim()){
+          try{const o=parseAiJson(txt);if(o&&typeof o==='object'){aiUseBump();return String(txt);}}catch(_){}
+          log.push(model+': ответ не JSON');overload=true;continue;
+        }
+        log.push(model+': пустой ответ');overload=true;continue;
       }
-      let msg='';try{const e=await res.json();msg=(e.error&&e.error.message)||'';}catch(_){}
-      log.push(`${model}: ${res.status} ${msg}`.trim().slice(0,200));
-      if(res.status===401||res.status===403||/API key not valid|API_KEY_INVALID|expired/i.test(msg)){auth=true;continue;}
-      if(res.status===429){quota=/minute/i.test(msg)&&!/day/i.test(msg)?'minute':'day';continue;} // у каждой модели свой лимит — пробуем следующую
-      if(res.status>=500){overload=true;retry.push(mi);}
+      const msg=(j&&j.error&&(j.error.message||''))||'';
+      log.push(`${model}: ${res.status} ${msg}`.trim().slice(0,160));
+      if(res.status===401){authErr=true;break;}
+      if(res.status===404&&/data policy|privacy/i.test(msg)){policy=true;break;}
+      if(res.status===429||res.status===402)quota=true;else overload=true;
     }
-    models=retry;
   }
   const err=new Error(
-    auth&&!overload&&!quota?'Google не принимает ключ API — он отозван, удалён или ограничен. Вставьте новый ключ':
-    quota&&!overload?(quota==='minute'?'Слишком много запросов подряд — подождите минуту и повторите':'Дневной бесплатный лимит нейросети исчерпан — он сбрасывается раз в сутки. Пока добавляйте операции вручную')
-    :overload?'Сервер нейросети перегружен — попробуйте ещё раз через минуту':'Нейросеть не ответила');
-  err.log=log.slice(-4);err.auth=auth&&!overload&&!quota;throw err;
+    policy?'OpenRouter блокирует бесплатные модели настройками приватности. Откройте openrouter.ai/settings/privacy и разрешите бесплатные модели, затем повторите'
+    :authErr?'API-ключ OpenRouter недействителен — проверьте ключ в начале блока AI'
+    :quota&&!overload?'Лимит бесплатных запросов исчерпан — подождите немного или добавьте операцию вручную'
+    :'Бесплатные модели сейчас заняты или не ответили — попробуйте ещё раз через минуту');
+  err.log=log.slice(-5);throw err;
 }
 
 function parseAiJson(txt){
@@ -1753,7 +1948,7 @@ async function scanReceipt(files){
     const b64s=imgs.map(i=>i.b64),key=hashStr(b64s.join('|'));
     let txt=aiCacheGet(key);const cached=!!txt;
     if(cached){const h=sheet.querySelector('.scan-hint');if(h)h.textContent='Это фото уже распознавалось — беру результат из памяти';}
-    else txt=await callGemini(b64s,t=>{const h=sheet.querySelector('.scan-hint');if(h&&my===scanId)h.textContent=t;});
+    else txt=await callAI(b64s,t=>{const h=sheet.querySelector('.scan-hint');if(h&&my===scanId)h.textContent=t;});
     if(my!==scanId)return;
     const j=parseAiJson(txt);
     let list=Array.isArray(j.items)?j.items:(j.amount!=null?[j]:[]);
@@ -1766,15 +1961,9 @@ async function scanReceipt(files){
     if(my!==scanId)return;
     openSheet(`<h3>Не получилось распознать</h3>
       <div class="scan-err">${esc(e.message||String(e))}${e.log?'<br><br>'+e.log.map(esc).join('<br>'):''}</div>
-      ${e.auth?`<div class="field"><span class="lbl">Новый API-ключ Gemini</span><input id="keyIn" type="text" placeholder="Вставьте ключ (AIza… или AQ.…)" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
-      <div class="hint">Создать ключ: aistudio.google.com → «Get API key». Он сохранится только в этом браузере.</div>`:''}
-      <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Закрыть</button>${e.auth?'<button class="btn" id="mKey">Сохранить и повторить</button>':'<button class="btn" id="mManual">Вручную</button>'}</div>`);
+      <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Закрыть</button><button class="btn" id="mManual">Вручную</button></div>`);
     $('mCancel').onclick=closeSheet;
-    if($('mManual'))$('mManual').onclick=()=>{closeSheet();setTimeout(()=>opModal(),160);};
-    if($('mKey'))$('mKey').onclick=()=>{
-      const k=$('keyIn').value.trim();
-      if(k.length<20||/\s/.test(k)){toast('Похоже на неполный ключ');return;}
-      localStorage.setItem('mono.aiKey',k);scanReceipt(files);};
+    $('mManual').onclick=()=>{closeSheet();setTimeout(()=>opModal(),160);};
   }
 }
 
@@ -1894,6 +2083,88 @@ function initTheme(){
   });
 }
 
+
+
+/* ============ iOS-подобный ползунок сегментов: удержание увеличивает «линзу», её можно тянуть ============ */
+(function(){
+  let st=null;
+  const glassOnNow=()=>document.body.classList.contains('glass');
+  document.addEventListener('pointerdown',e=>{
+    if(!glassOnNow()||(e.pointerType==='mouse'&&e.button!==0))return;
+    const btn=e.target.closest&&e.target.closest('.seg-btn');if(!btn)return;
+    const seg=btn.closest('.seg'),pill=seg&&seg.querySelector('.seg-pill');if(!pill)return;
+    st={id:e.pointerId,seg,pill,x0:e.clientX,lastX:e.clientX,moved:false,stretch:0,orig:seg.querySelector('.seg-btn.on')};
+    seg.classList.add('press');
+  },{passive:true});
+  document.addEventListener('pointermove',e=>{
+    if(!st||e.pointerId!==st.id)return;
+    const {seg,pill}=st;
+    if(!st.moved){
+      if(Math.abs(e.clientX-st.x0)<5)return;
+      st.moved=true;seg.classList.add('dragging');pillCancel(pill);
+      try{seg.setPointerCapture(e.pointerId);}catch(_){}
+    }
+    const btns=[...seg.querySelectorAll('.seg-btn')],first=btns[0],last=btns[btns.length-1];
+    const w=(st.orig||first).offsetWidth,r=seg.getBoundingClientRect();
+    const cx=e.clientX-r.left-seg.clientLeft;
+    const minS=first.offsetLeft,maxS=last.offsetLeft+last.offsetWidth-w;
+    let s=cx-w/2;s=Math.max(minS-10,Math.min(maxS+10,s));
+    st.stretch=st.stretch*.65+(e.clientX-st.lastX)*1.1;st.lastX=e.clientX;
+    const str=Math.max(-16,Math.min(16,st.stretch));
+    setPillRaw(pill,false,str<0?s+str:s,(str>0?s+w+str:s+w));
+    /* кнопка под центром линзы получает контрастный цвет текста */
+    const mid=s+w/2;let near=btns[0];
+    btns.forEach(b=>{if(Math.abs(b.offsetLeft+b.offsetWidth/2-mid)<Math.abs(near.offsetLeft+near.offsetWidth/2-mid))near=b;});
+    if(!near.classList.contains('on')){btns.forEach(b=>b.classList.toggle('on',b===near));}
+  },{passive:true});
+  const finish=e=>{
+    if(!st||e.pointerId!==st.id)return;
+    const {seg,pill,orig,moved}=st;st=null;
+    seg.classList.remove('press');
+    if(!moved)return;
+    seg.classList.remove('dragging');
+    const near=seg.querySelector('.seg-btn.on');
+    try{if(seg.hasPointerCapture(e.pointerId))seg.releasePointerCapture(e.pointerId);}catch(_){}
+    if(near&&near!==orig){near.click();}else{if(orig){seg.querySelectorAll('.seg-btn').forEach(b=>b.classList.toggle('on',b===orig));}syncSeg(seg);}
+  };
+  document.addEventListener('pointerup',finish,{passive:true});
+  document.addEventListener('pointercancel',finish,{passive:true});
+})();
+
+/* ============ liquid glass ============ */
+const GLASS_KEY='mono.glass';
+function glassOn(){try{return localStorage.getItem(GLASS_KEY)!=='0';}catch(e){return true;}}
+function applyGlass(on){
+  document.body.classList.toggle('glass',on);
+  try{glassFlow(ui.page||0,false);if(!on){const bg=document.querySelector('.glass-bg');if(bg)bg.style.transform='';}}catch(e){}
+  const sw=$('glassSwitch');if(sw)sw.setAttribute('aria-checked',on?'true':'false');
+  requestAnimationFrame(()=>{try{pillCancel(tabPill);document.querySelectorAll('.seg-pill').forEach(pillCancel);syncAllSegs();indicatorTo(ui.page,true);}catch(e){}});
+}
+function initGlass(){
+  applyGlass(glassOn());
+  const sw=$('glassSwitch');
+  if(sw)sw.addEventListener('click',()=>{
+    const on=!document.body.classList.contains('glass');
+    try{localStorage.setItem(GLASS_KEY,on?'1':'0');}catch(e){}
+    applyGlass(on);toast(on?'Жидкое стекло включено':'Жидкое стекло выключено');
+  });
+  let cur=null;
+  const clear=()=>{if(cur){cur.style.setProperty('--gl','0');cur=null;}};
+  document.addEventListener('pointermove',e=>{
+    if(e.pointerType!=='mouse'||!document.body.classList.contains('glass'))return;
+    const t=e.target.closest?e.target.closest('.card,.tile'):null;
+    if(cur&&cur!==t)clear();
+    if(!t)return;
+    const r=t.getBoundingClientRect();
+    t.style.setProperty('--mx',(e.clientX-r.left)+'px');
+    t.style.setProperty('--my',(e.clientY-r.top)+'px');
+    t.style.setProperty('--gl','1');cur=t;
+  },{passive:true});
+  document.addEventListener('pointerup',e=>{if(e.pointerType!=='mouse')clear();},{passive:true});
+  document.addEventListener('pointercancel',clear,{passive:true});
+  document.addEventListener('mouseleave',clear);
+}
+
 /* ============ render all & init ============ */
 function renderHeader(){
   const h=new Date().getHours();
@@ -1908,6 +2179,7 @@ function renderAll(){
 
 function init(){
   initTheme();
+  initGlass();
   loadAll();
   if(!localStorage.getItem(S_KEY)){state=seedState();saveAll();localStorage.setItem(S_KEY,'1');}
   if(!state.cats.length)state.cats=defaultCats();
