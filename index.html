@@ -1179,11 +1179,41 @@ function opWord(n){const a=Math.abs(n)%100,b=a%10;if(a>10&&a<20)return 'опер
 function parseMoney(v){const n=parseFloat(String(v).replace(/\s/g,'').replace(',','.'));return isFinite(n)&&n>0?Math.round(n*100)/100:null;}
 
 /* ============ store & state ============ */
+/* --- надёжное хранилище: localStorage + зеркальная копия в IndexedDB (восстановление, если браузер очистил localStorage) --- */
+let _idb=null;
+function idbOpen(){
+  if(!_idb)_idb=new Promise((res,rej)=>{try{const r=indexedDB.open('mono-db',1);
+    r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);}catch(e){rej(e);}});
+  return _idb;
+}
+function idbPut(k,v){return idbOpen().then(db=>new Promise(res=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);
+  t.oncomplete=()=>res(true);t.onerror=t.onabort=()=>res(false);})).catch(()=>false);}
+function idbDel(k){return idbOpen().then(db=>new Promise(res=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').delete(k);
+  t.oncomplete=()=>res(true);t.onerror=t.onabort=()=>res(false);})).catch(()=>false);}
+function idbAll(){return idbOpen().then(db=>new Promise(res=>{const o={},t=db.transaction('kv','readonly'),c=t.objectStore('kv').openCursor();
+  c.onsuccess=()=>{const cur=c.result;if(cur){o[cur.key]=cur.value;cur.continue();}else res(o);};c.onerror=()=>res(o);})).catch(()=>({}));}
+let _warned=false;
+function warnSave(){if(_warned)return;_warned=true;try{toast('Не удалось сохранить в памяти браузера — сделайте экспорт JSON');}catch(e){}}
 const store={
   get(k,d){try{const v=localStorage.getItem('mono.'+k);return v?JSON.parse(v):d;}catch(e){return d;}},
-  set(k,v){localStorage.setItem('mono.'+k,JSON.stringify(v));},
-  del(k){localStorage.removeItem('mono.'+k);}
+  set(k,v){const j=JSON.stringify(v);try{localStorage.setItem('mono.'+k,j);}catch(e){warnSave();}idbPut('mono.'+k,j);},
+  del(k){try{localStorage.removeItem('mono.'+k);}catch(e){}idbDel('mono.'+k);}
 };
+const PERSIST_KEYS=['mono.tx','mono.goals','mono.cats','mono.settings','mono.orKey'];
+// Перед запуском: вернуть данные и ключ из IndexedDB, если localStorage пуст; и наоборот — продублировать в IndexedDB.
+async function restoreFromIDB(){
+  try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});}catch(e){}
+  try{
+    const all=await idbAll();
+    let restoredData=false;
+    PERSIST_KEYS.forEach(k=>{
+      let cur=null;try{cur=localStorage.getItem(k);}catch(e){}
+      if(!cur&&all[k]){try{localStorage.setItem(k,all[k]);if(k!=='mono.orKey')restoredData=true;}catch(e){}}
+      else if(cur&&all[k]!==cur){idbPut(k,cur);}
+    });
+    if(restoredData){try{localStorage.setItem('mono.v1','1');}catch(e){}}
+  }catch(e){}
+}
 let state={tx:[],goals:[],cats:[],settings:{currency:'EUR',budget:0}};
 const ui={page:0,homePeriod:'month',statsType:'exp',statsPeriod:'month',histType:'all',histCat:'all',histPeriod:'month'};
 function saveAll(){store.set('tx',state.tx);store.set('goals',state.goals);store.set('cats',state.cats);store.set('settings',state.settings);}
@@ -1727,14 +1757,73 @@ function opModal(pre){pre=pre&&pre.scanned?pre:null;
 }
 
 /* ============ AI: распознавание чеков по фото (OpenRouter) ============ */
-const OPENROUTER_API_KEY='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';
-// Бесплатные модели с поддержкой картинок, пробуются по очереди.
-// (openrouter/free не используем: он может выбрать служебную safety-модель, которая отвечает «User Safety: safe».)
-const AI_MODELS=['nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free','google/gemma-4-31b-it:free','google/gemma-4-26b-a4b-it:free','nvidia/nemotron-nano-12b-v2-vl:free','dots-studio/dots-3-note-preview:free'];
-const AI_URL='https://openrouter.ai/api/v1/chat/completions';
+// Ключ хранится ТОЛЬКО на устройстве (localStorage + копия в IndexedDB, удаляется только вручную) — в коде его нет: ключи из публичных репозиториев OpenRouter отзывает автоматически.
+const AI_BASE='https://openrouter.ai/api/v1';
+const AI_URL=AI_BASE+'/chat/completions';
+// Запасной список (если актуальный список моделей загрузить не удалось). Бесплатные модели с поддержкой картинок.
+const AI_FALLBACK=['google/gemma-4-31b-it:free','google/gemma-4-26b-a4b-it:free','nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free','dots-studio/dots-3-note-preview:free'];
+const AI_LAST='openrouter/free'; // роутер: последний шанс, ответ всё равно проверяется на JSON
+const AI_BAD=/safety|guard|moderation|openrouter\/free|inkling/i;
 let scanId=0;
 
+function aiKeyGet(){try{return (localStorage.getItem('mono.orKey')||'').trim();}catch(e){return '';}}
+function aiKeySet(k){try{if(k)localStorage.setItem('mono.orKey',k);else localStorage.removeItem('mono.orKey');}catch(e){}
+  if(k)idbPut('mono.orKey',k);else idbDel('mono.orKey');}
+function fetchT(url,opt,ms){const c=new AbortController(),t=setTimeout(()=>c.abort(),ms);
+  return fetch(url,Object.assign({},opt,{signal:c.signal})).finally(()=>clearTimeout(t));}
+
+// Проверка ключа: ok | bad (отклонён/отозван) | net (openrouter.ai недоступен) | unknown
+async function aiCheckKey(key){
+  let reach=false;
+  try{const r=await fetchT(AI_BASE+'/models',{cache:'no-store'},12000);reach=r.status<500;}catch(e){reach=false;}
+  if(!reach)return 'net';
+  try{
+    const r=await fetchT(AI_BASE+'/key',{headers:{'Authorization':'Bearer '+key},cache:'no-store'},12000);
+    if(r.ok)return 'ok';
+    if(r.status===401||r.status===403)return 'bad';
+    return 'unknown';
+  }catch(e){return 'blocked';} // проверить не удалось — ключ НЕ отклоняем
+}
+
+// Актуальный список бесплатных моделей с картинками (кэш на 12 часов)
+async function aiModels(){
+  try{const c=JSON.parse(localStorage.getItem('mono.aiModels')||'null');if(c&&c.list&&c.list.length&&Date.now()-c.t<43200000){const l=c.list.filter(id=>!AI_BAD.test(id));if(l.length)return l.concat(AI_LAST);}}catch(e){}
+  try{
+    const r=await fetchT(AI_BASE+'/models',{cache:'no-store'},12000);if(!r.ok)throw 0;
+    const j=await r.json();
+    const ids=(j.data||[]).filter(m=>/:free$/.test(m.id)&&!AI_BAD.test(m.id)&&((m.architecture||{}).input_modalities||[]).includes('image')).map(m=>m.id);
+    const list=[];
+    AI_FALLBACK.forEach(id=>{if(ids.includes(id))list.push(id);});
+    ids.forEach(id=>{if(!list.includes(id)&&list.length<7)list.push(id);});
+    if(list.length){try{localStorage.setItem('mono.aiModels',JSON.stringify({t:Date.now(),list}));}catch(e){}return list.concat(AI_LAST);}
+  }catch(e){}
+  return AI_FALLBACK.concat(AI_LAST);
+}
+
+function keyFormHtml(note){
+  return `<div class="field"><span class="lbl">Ключ OpenRouter</span>
+      <input id="orKey" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-or-v1-…" value="">
+      <div class="hint">${note||'Бесплатный ключ создаётся на openrouter.ai/keys. Он хранится только на этом устройстве и не попадает в код сайта.'}</div>
+      <div id="orKeyMsg" class="hint" style="color:var(--tx2)"></div></div>`;
+}
+function wireKeyForm(onSaved){
+  const inp=$('orKey'),msg=$('orKeyMsg'),btn=$('orKeySave');if(!inp||!btn)return;
+  btn.onclick=async()=>{
+    const k=inp.value.trim();
+    if(!/^sk-or-/.test(k)){msg.textContent='Ключ должен начинаться с sk-or-';return;}
+    btn.disabled=true;msg.textContent='Проверяю ключ…';
+    const st=await aiCheckKey(k);
+    btn.disabled=false;
+    if(st==='bad'){msg.textContent='OpenRouter не принял этот ключ. Создайте новый на openrouter.ai/keys.';return;}
+    aiKeySet(k);
+    toast(st==='ok'?'Ключ принят ✓':'Ключ сохранён');
+    if(st==='net')toast('openrouter.ai недоступен из вашей сети — попробуйте VPN');
+    if(onSaved)onSaved();
+  };
+}
+
 function quickModal(){
+  const has=!!aiKeyGet();
   openSheet(`<h3>Быстрые действия</h3>
     <div class="qa-list">
       <button class="qa" id="qaCam"><span class="qa-ic">◎</span><span><b>Сфотографировать чек</b><small>Распознаю сумму, дату и категорию</small></span></button>
@@ -1743,28 +1832,79 @@ function quickModal(){
     </div>
     <input type="file" id="qaFileCam" accept="image/*" capture="environment" hidden>
     <input type="file" id="qaFilePick" accept="image/*" multiple hidden>
-    <div class="hint" style="margin-top:14px">Можно выбрать сразу несколько скриншотов (до 6) — они уйдут одним запросом. Распознаваний сегодня: ${aiUseGet()}.</div>`);
-  $('qaCam').onclick=()=>$('qaFileCam').click();
-  $('qaPick').onclick=()=>$('qaFilePick').click();
+    <div class="hint" style="margin-top:14px">Можно выбрать сразу несколько скриншотов (до 6) — они уйдут одним запросом. Распознаваний сегодня: ${aiUseGet()}.</div>
+    ${has?`<div style="display:flex;gap:16px;flex-wrap:wrap;padding-top:10px"><button class="link" id="qaKey" style="padding:0;text-decoration:underline">Ключ …${esc(aiKeyGet().slice(-4))} · сменить</button><button class="link" id="qaDiag" style="padding:0;text-decoration:underline">Диагностика</button></div>`:''}`);
+  $('qaCam').onclick=()=>{if(!aiKeyGet())return keySetupSheet(null);$('qaFileCam').click();};
+  $('qaPick').onclick=()=>{if(!aiKeyGet())return keySetupSheet(null);$('qaFilePick').click();};
   $('qaMan').onclick=()=>{closeSheet();setTimeout(()=>opModal(),160);};
+  if($('qaDiag'))$('qaDiag').onclick=diagSheet;
+  if($('qaKey'))$('qaKey').onclick=()=>keySetupSheet(null,'Вставьте новый ключ — старый будет заменён.');
   ['qaFileCam','qaFilePick'].forEach(id=>$(id).addEventListener('change',e=>{
     const fs=Array.from(e.target.files||[]).slice(0,6);if(fs.length)scanReceipt(fs);}));
 }
 
+// Экран ввода ключа. files — если есть, после сохранения сразу запускаем распознавание.
+function keySetupSheet(files,note){
+  const has=!!aiKeyGet();
+  openSheet(`<h3>Ключ для распознавания</h3>${keyFormHtml(note)}
+    <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Отмена</button><button class="btn" id="orKeySave">Сохранить</button></div>
+    ${has?'<button class="link" id="orKeyDel" style="padding:14px 0 0;text-decoration:underline">Удалить сохранённый ключ</button>':''}`);
+  $('mCancel').onclick=closeSheet;
+  wireKeyForm(()=>{if(files&&files.length){scanReceipt(files);}else{quickModal();}});
+  if($('orKeyDel'))$('orKeyDel').onclick=()=>confirmModal('Удалить ключ OpenRouter с этого устройства?',()=>{aiKeySet('');toast('Ключ удалён');});
+}
+
+function diagSheet(){
+  openSheet(`<h3>Диагностика</h3><div class="scan-err" id="dgOut" style="white-space:pre-wrap;font-family:monospace;font-size:11px">Запускаю…</div>
+    <div class="btn-row"><button class="btn" id="mCancel">Закрыть</button></div>`);
+  $('mCancel').onclick=closeSheet;
+  const out=$('dgOut'),lines=[],say=t=>{lines.push(t);out.textContent=lines.join('\n');};
+  aiDiagnose(say).catch(e=>say('Ошибка диагностики: '+(e.message||e)));
+}
+async function aiDiagnose(say){
+  const key=aiKeyGet();
+  say('Интернет: '+(navigator.onLine===false?'нет':'да'));
+  say('Ключ: '+(key?'…'+key.slice(-4):'не введён'));
+  let t=Date.now();
+  try{const r=await fetchT(AI_BASE+'/models',{cache:'no-store'},12000);say(`openrouter.ai: доступен (${r.status}, ${Date.now()-t} мс)`);}
+  catch(e){say('openrouter.ai: НЕ доступен — '+(e.name==='AbortError'?'таймаут':'нет связи или сайт заблокирован (нужен VPN?)'));return;}
+  if(!key)return;
+  try{
+    const r=await fetchT(AI_BASE+'/key',{headers:{'Authorization':'Bearer '+key},cache:'no-store'},12000);
+    let j=null;try{j=await r.json();}catch(_){}
+    if(r.ok)say('Ключ: принят'+(((j||{}).data||{}).is_free_tier===true?' (бесплатный тариф)':''));
+    else say(`Ключ: отклонён (${r.status}) ${((j&&j.error&&j.error.message)||'').slice(0,80)}`);
+  }catch(e){say('Ключ: запрос с ключом не прошёл (браузер не получил ответ)');}
+  const c=document.createElement('canvas');c.width=240;c.height=90;const g=c.getContext('2d');
+  g.fillStyle='#fff';g.fillRect(0,0,240,90);g.fillStyle='#000';g.font='bold 56px sans-serif';g.fillText('4750',24,66);
+  const b64=c.toDataURL('image/jpeg',0.9).split(',')[1];
+  const models=(await aiModels()).slice(0,3);
+  say('Тест чтения картинки (число 4750):');
+  for(const m of models){
+    t=Date.now();
+    try{
+      const r=await fetchT(AI_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+        body:JSON.stringify({model:m,max_tokens:400,temperature:0,messages:[{role:'user',content:[{type:'text',text:'Какое число на картинке? Ответь только числом.'},{type:'image_url',image_url:{url:'data:image/jpeg;base64,'+b64}}]}]})},40000);
+      let j=null;try{j=await r.json();}catch(_){}
+      const sec=Math.round((Date.now()-t)/100)/10;
+      if(r.ok&&j&&!j.error){const x=((j.choices||[])[0]||{}).message||{};say(`${m.split('/')[1]}: ${sec} с → «${String(x.content||x.reasoning||'').trim().slice(0,30)}»`);}
+      else say(`${m.split('/')[1]}: ${(j&&j.error&&j.error.code)||r.status} ${((j&&j.error&&j.error.message)||'').slice(0,110)}`);
+    }catch(e){say(`${m.split('/')[1]}: ${e.name==='AbortError'?'нет ответа 40 с':'запрос не дошёл'}`);}
+  }
+  say('Готово. Пришлите скриншот этого экрана.');
+}
+
 function fileToJpegBase64(file,maxSide=2000){
+  const draw=(src,w,h)=>{const k=Math.min(1,maxSide/Math.max(w,h));const c=document.createElement('canvas');
+    c.width=Math.max(1,Math.round(w*k));c.height=Math.max(1,Math.round(h*k));
+    const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(src,0,0,c.width,c.height);
+    const d=c.toDataURL('image/jpeg',0.86);return{b64:d.split(',')[1],preview:d};};
   return new Promise((resolve,reject)=>{
     const url=URL.createObjectURL(file),img=new Image();
-    img.onload=()=>{
-      try{
-        const k=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight));
-        const c=document.createElement('canvas');
-        c.width=Math.max(1,Math.round(img.naturalWidth*k));c.height=Math.max(1,Math.round(img.naturalHeight*k));
-        const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);
-        const d=c.toDataURL('image/jpeg',0.86);URL.revokeObjectURL(url);
-        resolve({b64:d.split(',')[1],preview:d});
-      }catch(e){URL.revokeObjectURL(url);reject(e);}
-    };
-    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Не удалось открыть изображение'));};
+    img.onload=()=>{try{const r=draw(img,img.naturalWidth,img.naturalHeight);URL.revokeObjectURL(url);resolve(r);}catch(e){URL.revokeObjectURL(url);reject(e);}};
+    img.onerror=()=>{URL.revokeObjectURL(url);
+      if(window.createImageBitmap)createImageBitmap(file).then(bm=>resolve(draw(bm,bm.width,bm.height))).catch(()=>reject(new Error('Не удалось открыть изображение')));
+      else reject(new Error('Не удалось открыть изображение'));};
     img.src=url;
   });
 }
@@ -1800,49 +1940,66 @@ function aiUseGet(){try{const u=JSON.parse(localStorage.getItem('mono.aiUse')||'
 function aiUseBump(){try{localStorage.setItem('mono.aiUse',JSON.stringify({d:dkey(new Date()),n:aiUseGet()+1}));}catch(e){}}
 
 async function callAI(b64s,onStage){
+  const key=aiKeyGet();
+  if(!key){const e=new Error('Нужен ключ OpenRouter');e.code='nokey';throw e;}
+  if(navigator.onLine===false){const e=new Error('Нет подключения к интернету');e.code='net';throw e;}
   const content=[{type:'text',text:buildPrompt()}].concat(b64s.map(d=>({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+d}})));
-  const headers={'Content-Type':'application/json','Authorization':'Bearer '+OPENROUTER_API_KEY,'X-Title':'Mono'};
-  if(/^https?:/.test(location.origin))headers['HTTP-Referer']=location.origin;
-  const log=[],DELAYS=[0,5000,10000],sleep=ms=>new Promise(r=>setTimeout(r,ms));
-  let quota=false,overload=false,authErr=false,policy=false;
-  for(let round=0;round<DELAYS.length&&!authErr&&!policy;round++){
+  const headers={'Content-Type':'application/json','Authorization':'Bearer '+key};
+  const models=await aiModels();
+  const log=[],t0=Date.now(),BUDGET=150000,DELAYS=[0,8000,15000],sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  let quota=false,daily=false,overload=false,policy=false,diagnosed=false,timeout=false;const bad=new Set();
+  const fail=(msg,code)=>{const e=new Error(msg);e.code=code;e.log=log.slice(-6);return e;};
+  for(let round=0;round<DELAYS.length&&!daily&&!policy&&Date.now()-t0<BUDGET;round++){
     if(round>0){
-      for(let t=Math.round(DELAYS[round]/1000);t>0;t--){
-        if(onStage)onStage(`Все модели заняты. Повтор ${round+1}/${DELAYS.length} через ${t} с…`);
-        await sleep(1000);
-      }
+      for(let t=Math.round(DELAYS[round]/1000);t>0;t--){if(onStage)onStage(`Все модели заняты. Повтор через ${t} с…`);await sleep(1000);}
     }
-    for(const model of AI_MODELS){
-      if(onStage)onStage(`Отправляю на распознавание (${model.split('/')[1].replace(':free','')})…`);
-      const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),75000);
+    let n=0;
+    for(const model of models){
+      n++;if(bad.has(model))continue;
+      const left=BUDGET-(Date.now()-t0);if(left<8000)break;
+      if(onStage)onStage(`Распознаю (${n}/${models.length}, ${model.split('/')[1].replace(':free','')})…`);
       let res;
-      try{res=await fetch(AI_URL,{method:'POST',headers,body:JSON.stringify({model,messages:[{role:'user',content}],temperature:0,max_tokens:6000}),signal:ctl.signal});}
-      catch(e){clearTimeout(tm);log.push(model+': '+(e.name==='AbortError'?'нет ответа 75 с':'нет сети или запрос заблокирован'));overload=true;continue;}
-      clearTimeout(tm);
+      try{res=await fetchT(AI_URL,{method:'POST',headers,body:JSON.stringify({model,messages:[{role:'user',content}],temperature:0,max_tokens:5000,reasoning:{effort:'low'}})},Math.min(45000,left));}
+      catch(e){
+        if(e.name==='AbortError'){log.push(model.split('/')[1]+': нет ответа за 45 с');timeout=true;overload=true;continue;}
+        if(!diagnosed){
+          diagnosed=true;
+          if(onStage)onStage('Проверяю подключение и ключ…');
+          const st=await aiCheckKey(key);
+          if(st==='net')throw fail('Не удаётся связаться с openrouter.ai. Проверьте интернет; если сервис недоступен в вашей сети — включите VPN и повторите.','net');
+          if(st==='bad')throw fail('OpenRouter не принимает ключ (отозван или введён неверно). Создайте новый на openrouter.ai/keys и вставьте ниже.','key');
+          if(st==='blocked')throw fail('Запрос с ключом не доходит до OpenRouter, хотя сайт доступен. Нажмите «Диагностика» и пришлите скриншот; можно также попробовать создать новый ключ.','key');
+        }
+        log.push(model.split('/')[1]+': запрос не дошёл');overload=true;continue;
+      }
       let j=null;try{j=await res.json();}catch(_){}
+      const code=(j&&j.error&&j.error.code)||res.status;
       if(res.ok&&j&&!j.error){
-        const m=((j.choices||[])[0]||{}).message||{};
+        const ch=(j.choices||[])[0]||{},m=ch.message||{};
         let txt=m.content;
         if(Array.isArray(txt))txt=txt.map(p=>p.text||'').join('');
-        if(txt&&String(txt).trim()){
-          try{const o=parseAiJson(txt);if(o&&typeof o==='object'){aiUseBump();return String(txt);}}catch(_){}
-          log.push(model+': ответ не JSON');overload=true;continue;
-        }
-        log.push(model+': пустой ответ');overload=true;continue;
+        const cands=[txt,m.reasoning,m.reasoning_content].filter(x=>x&&String(x).trim());
+        let got=null;
+        for(const c of cands){try{const o=parseAiJson(c);if(o&&typeof o==='object'&&('items' in o||'ok' in o||'amount' in o)){got=String(c);break;}}catch(_){}}
+        if(got){aiUseBump();return got;}
+        log.push(model.split('/')[1]+': '+(cands.length?'ответ не JSON':'пустой ответ'+(ch.finish_reason==='length'?' (не хватило токенов)':'')));overload=true;continue;
       }
-      const msg=(j&&j.error&&(j.error.message||''))||'';
-      log.push(`${model}: ${res.status} ${msg}`.trim().slice(0,160));
-      if(res.status===401){authErr=true;break;}
-      if(res.status===404&&/data policy|privacy/i.test(msg)){policy=true;break;}
-      if(res.status===429||res.status===402)quota=true;else overload=true;
+      const raw=(j&&j.error&&j.error.metadata&&j.error.metadata.raw)?' '+String(j.error.metadata.raw):'';
+      const msg=((j&&j.error&&j.error.message)||'')+raw;
+      log.push(`${model.split('/')[1]}: ${code} ${msg}`.trim().slice(0,140));
+      if(code===401||(code===403&&/invalid.{0,12}key|api key|no auth|unauthori[sz]ed|credential/i.test(msg)))throw fail('OpenRouter не принимает ключ. Создайте новый на openrouter.ai/keys и вставьте ниже.','key');
+      if(code===404&&/data policy|privacy/i.test(msg)){policy=true;break;}
+      if(code===403||code===404||code===400){bad.add(model);continue;} // модель недоступна именно этому запросу — пробуем следующую
+      if(code===429||code===402){quota=true;if(/per-day|daily|credits/i.test(msg)){daily=true;break;}}else overload=true;
     }
   }
-  const err=new Error(
-    policy?'OpenRouter блокирует бесплатные модели настройками приватности. Откройте openrouter.ai/settings/privacy и разрешите бесплатные модели, затем повторите'
-    :authErr?'API-ключ OpenRouter недействителен — проверьте ключ в начале блока AI'
-    :quota&&!overload?'Лимит бесплатных запросов исчерпан — подождите немного или добавьте операцию вручную'
-    :'Бесплатные модели сейчас заняты или не ответили — попробуйте ещё раз через минуту');
-  err.log=log.slice(-5);throw err;
+  if(bad.size&&!overload&&!quota&&!timeout)log.push('Ни одна модель не приняла запрос');
+  throw fail(
+    policy?'OpenRouter блокирует бесплатные модели настройками приватности. Откройте openrouter.ai/settings/privacy и разрешите бесплатные модели, затем повторите.'
+    :daily?'Дневной лимит бесплатных запросов исчерпан — продолжится завтра. Пока добавьте операцию вручную.'
+    :quota&&!overload?'Слишком много запросов подряд — подождите минуту и повторите.'
+    :timeout?'Бесплатные модели отвечают слишком долго. Повторите через минуту или нажмите «Диагностика».'
+    :'Бесплатные модели сейчас заняты или не ответили — попробуйте ещё раз через минуту.','busy');
 }
 
 function parseAiJson(txt){
@@ -1933,6 +2090,7 @@ function multiModal(items){
 
 async function scanReceipt(files){
   files=Array.isArray(files)?files:[files];
+  if(!aiKeyGet()){keySetupSheet(files);return;}
   const my=++scanId;
   openSheet(`<h3>Распознаю…</h3><div class="scan-loader"><i></i></div>
     <div class="scan-hint">Читаю суммы, даты и категории</div>
@@ -1959,11 +2117,18 @@ async function scanReceipt(files){
     setTimeout(()=>items.length===1?opModal(items[0]):multiModal(items),cached?500:180);
   }catch(e){
     if(my!==scanId)return;
+    if(e.code==='nokey'){keySetupSheet(files);return;}
+    const keyErr=e.code==='key';
     openSheet(`<h3>Не получилось распознать</h3>
-      <div class="scan-err">${esc(e.message||String(e))}${e.log?'<br><br>'+e.log.map(esc).join('<br>'):''}</div>
-      <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Закрыть</button><button class="btn" id="mManual">Вручную</button></div>`);
+      <div class="scan-err">${esc(e.message||String(e))}${e.log&&e.log.length?'<br><br>'+e.log.map(esc).join('<br>'):''}</div>
+      ${keyErr?keyFormHtml('Вставьте новый ключ OpenRouter.'):''}
+      <div class="btn-row"><button class="btn btn-ghost" id="mCancel">Закрыть</button>${keyErr?'<button class="btn" id="orKeySave">Сохранить</button>':'<button class="btn" id="mRetry">Ещё раз</button>'}</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;padding-top:12px"><button class="link" id="mDiag" style="padding:0;text-decoration:underline">Диагностика</button><button class="link" id="mManual" style="padding:0;text-decoration:underline">Добавить вручную</button></div>`);
     $('mCancel').onclick=closeSheet;
+    $('mDiag').onclick=diagSheet;
     $('mManual').onclick=()=>{closeSheet();setTimeout(()=>opModal(),160);};
+    if(keyErr)wireKeyForm(()=>scanReceipt(files));
+    else if($('mRetry'))$('mRetry').onclick=()=>scanReceipt(files);
   }
 }
 
@@ -2230,7 +2395,8 @@ function init(){
   goTo(0,true);
   if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{cacheNavGeometry();indicatorTo(ui.page,true);syncAllSegs();});
 }
-init();
+(function(){let started=false;const go=()=>{if(started)return;started=true;init();};
+  Promise.race([restoreFromIDB(),new Promise(r=>setTimeout(r,2000))]).then(go,go);})();
 </script>
 </body>
 </html>
